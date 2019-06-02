@@ -264,7 +264,7 @@ class EJBClientChannel {
                                 final CidrAddress block = CidrAddress.create(sourceIpBytes, netmaskBits);
                                 final String destHost = message.readUTF();
                                 final int destPort = message.readUnsignedShort();
-                                final InetSocketAddress destination = new InetSocketAddress(destHost, destPort);
+                                final InetSocketAddress destination = InetSocketAddress.createUnresolved(destHost, destPort);
                                 nodeInformation.addAddress(channel.getConnection().getProtocol(), clusterName, block, destination);
                                 if (Logs.INVOCATION.isDebugEnabled()) {
                                     Logs.INVOCATION.debugf("Received CLUSTER_TOPOLOGY(%x) message block from %s, registering block %s to address %s", msg, remoteEndpoint, block, destination);

@@ -51,6 +51,7 @@ import org.jboss.ejb._private.Logs;
 import org.jboss.ejb.client.EJBClientConnection;
 import org.jboss.ejb.client.EJBClientContext;
 import org.jboss.ejb.client.EJBModuleIdentifier;
+import org.jboss.logging.Logger;
 import org.jboss.remoting3.ConnectionPeerIdentity;
 import org.jboss.remoting3.Endpoint;
 import org.wildfly.common.Assert;
@@ -190,32 +191,37 @@ final class RemotingEJBDiscoveryProvider implements DiscoveryProvider, Discovere
                             final String protocol = entry2.getKey();
                             final CidrAddressTable<InetSocketAddress> addressTable = entry2.getValue();
                             for (CidrAddressTable.Mapping<InetSocketAddress> mapping : addressTable) {
-                                final InetSocketAddress destination = mapping.getValue();
-                                final InetSocketAddress source = ejbReceiver.getSourceAddress(destination);
-                                if (source == null ? mapping.getRange().getNetmaskBits() == 0 : source.equals(destination)) {
-                                    try {
-                                        final InetAddress destinationAddress = destination.getAddress();
-                                        String hostName = Inet.getHostNameIfResolved(destinationAddress);
-                                        if (hostName == null) {
-                                            if (destinationAddress instanceof Inet6Address) {
-                                                hostName = '[' + Inet.toOptimalString(destinationAddress) + ']';
-                                            } else {
-                                                hostName = Inet.toOptimalString(destinationAddress);
+                                final InetSocketAddress destUnresolved = mapping.getValue();
+                                final InetSocketAddress destination = new InetSocketAddress(destUnresolved.getHostName(), destUnresolved.getPort());
+                                if(!destination.isUnresolved()) {
+                                    final InetSocketAddress source = ejbReceiver.getSourceAddress(destination);
+                                    if (source == null ? mapping.getRange().getNetmaskBits() == 0 : source.equals(destination)) {
+                                        try {
+                                            final InetAddress destinationAddress = destination.getAddress();
+                                            String hostName = Inet.getHostNameIfResolved(destinationAddress);
+                                            if (hostName == null) {
+                                                if (destinationAddress instanceof Inet6Address) {
+                                                    hostName = '[' + Inet.toOptimalString(destinationAddress) + ']';
+                                                } else {
+                                                    hostName = Inet.toOptimalString(destinationAddress);
+                                                }
                                             }
+                                            final URI uri = new URI(protocol, null, hostName, destination.getPort(), null, null, null);
+                                            if (haveNotExpiredFailedDestination(uri)) {
+                                                Logs.INVOCATION.tracef("EJB discovery provider: attempting to connect to cluster connection %s, skipping because marked as failed", uri);
+                                            } else {
+                                                maxConnections--;
+                                                Logs.INVOCATION.tracef("EJB discovery provider: attempting to connect to cluster %s connection %s", clusterName, uri);
+                                                discoveryAttempt.connectAndDiscover(uri, clusterName);
+                                                ok = true;
+                                                continue nodeLoop;
+                                            }
+                                        } catch (URISyntaxException e) {
+                                            // ignore URI and try the next one
                                         }
-                                        final URI uri = new URI(protocol, null, hostName, destination.getPort(), null, null, null);
-                                        if (haveNotExpiredFailedDestination(uri)) {
-                                            Logs.INVOCATION.tracef("EJB discovery provider: attempting to connect to cluster connection %s, skipping because marked as failed", uri);
-                                        } else {
-                                            maxConnections--;
-                                            Logs.INVOCATION.tracef("EJB discovery provider: attempting to connect to cluster %s connection %s", clusterName, uri);
-                                            discoveryAttempt.connectAndDiscover(uri, clusterName);
-                                            ok = true;
-                                            continue nodeLoop;
-                                        }
-                                    } catch (URISyntaxException e) {
-                                        // ignore URI and try the next one
                                     }
+                                } else {
+                                    Logs.MAIN.logf(Logger.Level.DEBUG, "Cannot resolve %s host during discovery attempt, skipping", destUnresolved.getHostName());
                                 }
                             }
                         }
