@@ -425,12 +425,12 @@ public final class DiscoveryEJBClientInterceptor implements EJBClientInterceptor
         final List<Throwable> problems;
         final Set<URI> blacklist = getBlacklist();
         try (final ServicesQueue queue = discover(filterSpec)) {
-            ServiceURL serviceURL;
-            while ((serviceURL = queue.takeService(DISCOVERY_TIMEOUT, TimeUnit.SECONDS)) != null) {
-                final URI location = serviceURL.getLocationURI();
-                if (!blacklist.contains(location)) {
+            ServicesQueue.DiscoveryResult discoveryResult;
+            while ((discoveryResult = queue.takeService(DISCOVERY_TIMEOUT, TimeUnit.SECONDS)) != null) {
+                final URI location = discoveryResult.getServiceURL().getLocationURI();
+                if (blacklist == null || ! blacklist.contains(location)) {
                     // Got a match!  See if there's a node affinity to set for the invocation.
-                    final AttributeValue nodeValue = serviceURL.getFirstAttributeValue(FILTER_ATTR_NODE);
+                    final AttributeValue nodeValue = discoveryResult.getServiceURL().getFirstAttributeValue(FILTER_ATTR_NODE);
                     if (nodeValue != null) {
                         context.setTargetAffinity(new NodeAffinity(nodeValue.toString()));
                     } else {
@@ -489,12 +489,12 @@ public final class DiscoveryEJBClientInterceptor implements EJBClientInterceptor
 
         int nodeless = 0;
         try (final ServicesQueue queue = discover(filterSpec)) {
-            ServiceURL serviceURL;
-            while ((serviceURL = queue.takeService(DISCOVERY_TIMEOUT, TimeUnit.SECONDS)) != null) {
-                final URI location = serviceURL.getLocationURI();
-                if (!blacklist.contains(location)) {
+            ServicesQueue.DiscoveryResult discoveryResult;
+            while ((discoveryResult = queue.takeService(DISCOVERY_TIMEOUT, TimeUnit.SECONDS)) != null) {
+                final URI location = discoveryResult.getServiceURL().getLocationURI();
+                if (blacklist == null || ! blacklist.contains(location)) {
                     // Got a match!  See if there's a node affinity to set for the invocation.
-                    final AttributeValue nodeValue = serviceURL.getFirstAttributeValue(FILTER_ATTR_NODE);
+                    final AttributeValue nodeValue = discoveryResult.getServiceURL().getFirstAttributeValue(FILTER_ATTR_NODE);
                     if (nodeValue != null) {
                         if (nodes.remove(location, null)) {
                             nodeless--;
@@ -513,7 +513,7 @@ public final class DiscoveryEJBClientInterceptor implements EJBClientInterceptor
                     // cluster specifications that refer to the same URI. Currently multi-membership is
                     // represented in the latter form, however, handle the first form as well, just in
                     // case this changes in the future.
-                    final List<AttributeValue> clusters = serviceURL.getAttributeValues(FILTER_ATTR_CLUSTER);
+                    final List<AttributeValue> clusters = discoveryResult.getServiceURL().getAttributeValues(FILTER_ATTR_CLUSTER);
                     if (clusters != null) {
                         for (AttributeValue cluster : clusters) {
                             List<String> list = clusterAssociations.putIfAbsent(location, Collections.singletonList(cluster.toString()));
@@ -612,13 +612,14 @@ public final class DiscoveryEJBClientInterceptor implements EJBClientInterceptor
         final List<Throwable> problems;
         final Set<URI> blacklist = getBlacklist();
         try (final ServicesQueue queue = discover(filterSpec)) {
-            ServiceURL serviceURL;
-            while ((serviceURL = queue.takeService()) != null) {
-                final URI location = serviceURL.getLocationURI();
-                if (!blacklist.contains(location)) {
+
+            ServicesQueue.DiscoveryResult discoveryResult;
+            while ((discoveryResult = queue.takeService()) != null) {
+                final URI location = discoveryResult.getServiceURL().getLocationURI();
+                if (blacklist == null || ! blacklist.contains(location)) {
                     final EJBReceiver transportProvider = clientContext.getTransportProvider(location.getScheme());
-                    if (transportProvider != null && satisfiesSourceAddress(serviceURL, transportProvider)) {
-                        final AttributeValue nodeNameValue = serviceURL.getFirstAttributeValue(FILTER_ATTR_NODE);
+                    if (transportProvider != null && satisfiesSourceAddress(discoveryResult.getServiceURL(), transportProvider)) {
+                        final AttributeValue nodeNameValue = discoveryResult.getServiceURL().getFirstAttributeValue(FILTER_ATTR_NODE);
                         // should always be true, but no harm in checking
                         if (nodeNameValue != null) {
                             nodes.put(nodeNameValue.toString(), location);

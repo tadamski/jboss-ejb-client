@@ -64,6 +64,7 @@ import org.wildfly.discovery.EqualsFilterSpec;
 import org.wildfly.discovery.FilterSpec;
 import org.wildfly.discovery.ServiceType;
 import org.wildfly.discovery.ServiceURL;
+import org.wildfly.discovery.ServicesQueue;
 import org.wildfly.discovery.spi.DiscoveryProvider;
 import org.wildfly.discovery.spi.DiscoveryRequest;
 import org.wildfly.discovery.spi.DiscoveryResult;
@@ -562,6 +563,8 @@ final class RemotingEJBDiscoveryProvider implements DiscoveryProvider, Discovere
         public void addMatch(final ServiceURL serviceURL) {
             discoveryResult.addMatch(serviceURL);
         }
+
+        public void addMatch(final ServicesQueue.DiscoveryResult discoveryResult) { this.discoveryResult.addMatch(discoveryResult); }
 
         // discovery request methods
 
