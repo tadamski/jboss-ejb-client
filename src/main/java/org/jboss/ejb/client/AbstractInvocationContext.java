@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.wildfly.common.Assert;
+import org.wildfly.discovery.ServicesQueue;
 import org.wildfly.transaction.client.AbstractTransaction;
 
 /**
@@ -40,6 +41,8 @@ public abstract class AbstractInvocationContext extends Attachable {
     private URI destination;
     private Affinity targetAffinity;
     private String initialCluster;
+
+    private ServicesQueue.DiscoveryResult discoveryResult = null;
 
     /**
      * Gets the initial cluster assignment by discovery, if any
@@ -216,5 +219,13 @@ public abstract class AbstractInvocationContext extends Attachable {
      */
     public void setTransaction(final AbstractTransaction transaction) {
         this.transaction = transaction;
+    }
+
+    public ServicesQueue.DiscoveryResult getDiscoveryResult() {
+        return discoveryResult;
+    }
+
+    public void setDiscoveryResult(final ServicesQueue.DiscoveryResult discoveryResult) {
+        this.discoveryResult = discoveryResult;
     }
 }

@@ -263,6 +263,12 @@ public final class DiscoveryEJBClientInterceptor implements EJBClientInterceptor
             addInvocationBlackListedDestination(context, destination);
         }
 
+        final ServicesQueue.DiscoveryResult discoveryResult = context.getDiscoveryResult();
+
+        if (discoveryResult != null) {
+            discoveryResult.processMissingTarget(cause);
+        }
+
         // clear the weak affinity so that cluster invocations can be re-targeted.
         context.setWeakAffinity(Affinity.NONE);
         context.setTargetAffinity(null);
@@ -527,6 +533,11 @@ public final class DiscoveryEJBClientInterceptor implements EJBClientInterceptor
                         }
                     }
                 }
+
+                if(discoveryResultCallbacks.get(location) == null){
+                    discoveryResultCallbacks.put(location, new HashSet<>());
+                }
+                discoveryResultCallbacks.get(location).add(discoveryResult);
             }
             problems = queue.getProblems();
         } catch (InterruptedException e) {
@@ -588,6 +599,7 @@ public final class DiscoveryEJBClientInterceptor implements EJBClientInterceptor
         // determined. Randomly pick a cluster if there is more than one.
         selectCluster(context, clusterAssociations, location);
         context.setDestination(location);
+        context.setDiscoveryResult();
         if (nodeName != null) context.setTargetAffinity(new NodeAffinity(nodeName));
         return problems;
     }

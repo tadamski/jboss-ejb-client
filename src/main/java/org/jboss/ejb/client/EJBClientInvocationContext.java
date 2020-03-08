@@ -90,8 +90,6 @@ public final class EJBClientInvocationContext extends AbstractInvocationContext 
     private boolean blockingCaller;
     private int waiters = 0;
 
-    private ServicesQueue.DiscoveryResult discoveryResult = null;
-
     EJBClientInvocationContext(final EJBInvocationHandler<?> invocationHandler, final EJBClientContext ejbClientContext, final Object invokedProxy, final Object[] parameters, final EJBProxyInformation.ProxyMethodInfo methodInfo, final int allowedRetries, final Supplier<AuthenticationContext> authenticationContextSupplier, final Discovery discoveryContext) {
         super(invocationHandler.getLocator(), ejbClientContext);
         this.invocationHandler = invocationHandler;
@@ -1072,14 +1070,6 @@ public final class EJBClientInvocationContext extends AbstractInvocationContext 
             }
             if (retry) sendRequestInitial();
         }
-    }
-
-    public ServicesQueue.DiscoveryResult getDiscoveryResult() {
-        return discoveryResult;
-    }
-
-    public void setDiscoveryResult(ServicesQueue.DiscoveryResult discoveryResult) {
-        this.discoveryResult = discoveryResult;
     }
 
     final class FutureResponse implements Future<Object> {
