@@ -111,7 +111,7 @@ public class NetworkBlackHoleInvocationTestCase {
         // This test will fail if org.jboss.ejb.client.discovery.additional-node-timeout is not set
         // assertInvocationTimeLessThan checks that the org.jboss.ejb.client.discovery.additional-node-timeout is effective
         // if org.jboss.ejb.client.discovery.additional-node-timeout is not effective it will timeout once it reaches the value of org.jboss.ejb.client.discovery.timeout
-        System.setProperty("org.jboss.ejb.client.discovery.additional-node-timeout", "2");
+        System.setProperty("org.jboss.ejb.client.discovery.additional-node-timeout", "1000");
 
         try (DummyServer server2 = new DummyServer("localhost", 7099, "test2")) {
             server2.start();

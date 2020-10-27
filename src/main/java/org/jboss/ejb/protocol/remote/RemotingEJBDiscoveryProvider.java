@@ -70,6 +70,7 @@ import org.wildfly.discovery.spi.DiscoveryResult;
 import org.wildfly.security.auth.client.AuthenticationConfiguration;
 import org.wildfly.security.auth.client.AuthenticationContext;
 import org.wildfly.security.auth.client.AuthenticationContextConfigurationClient;
+import org.wildfly.security.manager.WildFlySecurityManager;
 import org.xnio.FailedIoFuture;
 import org.xnio.IoFuture;
 import org.xnio.OptionMap;
@@ -82,6 +83,8 @@ import org.xnio.OptionMap;
 final class RemotingEJBDiscoveryProvider implements DiscoveryProvider, DiscoveredNodeRegistry {
 
     static final AuthenticationContextConfigurationClient AUTH_CONFIGURATION_CLIENT = doPrivileged(AuthenticationContextConfigurationClient.ACTION);
+
+    private static final long DISCOVERY_ADDITIONAL_TIMEOUT = Long.parseLong(WildFlySecurityManager.getPropertyPrivileged("org.jboss.ejb.client.discovery.additional-node-timeout", "0"));
 
     private final ConcurrentHashMap<String, NodeInformation> nodes = new ConcurrentHashMap<>();
 
@@ -371,10 +374,20 @@ final class RemotingEJBDiscoveryProvider implements DiscoveryProvider, Discovere
         // keep a record of URIs we try to connect to for each cluster
         private final ConcurrentHashMap<String, Set<URI>> urisByCluster = new ConcurrentHashMap<>();
         private final Set<URI> connectFailedURIs = new HashSet<>();
-        /**
-         * nodes that have already been provided to the discovery provider eagerly
-         */
-        private final Set<String> eagerNodes = Collections.synchronizedSet(new HashSet<>());
+        
+        private boolean discoveryPerformed = false;
+
+        private final Thread timeoutTerminator = new Thread() {
+            @Override
+            public void run() {
+                try {
+                    Thread.sleep(DISCOVERY_ADDITIONAL_TIMEOUT);
+                } catch (InterruptedException e) {
+                }
+                DiscoveryAttempt.this.performDiscovery();
+            }
+        };
+
 
         DiscoveryAttempt(final ServiceType serviceType, final FilterSpec filterSpec, final DiscoveryResult discoveryResult, final RemoteEJBReceiver ejbReceiver, final AuthenticationContext authenticationContext) {
             this.serviceType = serviceType;
@@ -446,138 +459,133 @@ final class RemotingEJBDiscoveryProvider implements DiscoveryProvider, Discovere
             future.addNotifier(outerNotifier, uri);
         }
 
+
+
         void countDown() {
             if (outstandingCount.decrementAndGet() == 0) {
-
-                // before calculating the search result, update DNR to remove crashed last members of clusters (EJBCLIENT-325)
-                for (String cluster : urisByCluster.keySet()) {
-                    Set<URI> uris = urisByCluster.get(cluster);
-                      if (uris != null && uris.size() == 1) {
-                        // get the URI and check if it represents a failed last cluster member
-                        URI uri = uris.iterator().next();
-                        if (connectFailedURIs.contains(uri)) {
-                            Logs.INVOCATION.tracef("DiscoveryAttempt: countDown() found a cluster %s with one failed destination, %s, removing cluster", cluster, uri);
-                            removeCluster(cluster);
-                            for (NodeInformation nodeInformation : getAllNodeInformation()) {
-                                nodeInformation.removeCluster(cluster);
-                            }
+                performDiscovery();
+            } else {
+                if(DISCOVERY_ADDITIONAL_TIMEOUT>0){
+                    synchronized (timeoutTerminator){
+                        if(!timeoutTerminator.isAlive()){
+                            timeoutTerminator.start();
                         }
                     }
                 }
+            }
+        }
 
-                final DiscoveryResult result = this.discoveryResult;
-                final String node = filterSpec.accept(NODE_EXTRACTOR);
-                final EJBModuleIdentifier module = filterSpec.accept(MI_EXTRACTOR);
-                if (phase2) {
-                    if (node != null) {
-                        if (!eagerNodes.contains(node)) {
-                            final NodeInformation information = nodes.get(node);
-                            if (information != null) information.discover(serviceType, filterSpec, result);
-                        }
-                    } else for (NodeInformation information : nodes.values()) {
-                        if (!eagerNodes.contains(information.getNodeName())) {
-                            information.discover(serviceType, filterSpec, result);
+        private void performDiscovery(){
+            synchronized(this) {
+                if (discoveryPerformed == false) {
+                    discoveryPerformed = true;
+                    // before calculating the search result, update DNR to remove crashed last members of clusters (EJBCLIENT-325)
+                    for (String cluster : urisByCluster.keySet()) {
+                        Set<URI> uris = urisByCluster.get(cluster);
+                        if (uris != null && uris.size() == 1) {
+                            // get the URI and check if it represents a failed last cluster member
+                            URI uri = uris.iterator().next();
+                            if (connectFailedURIs.contains(uri)) {
+                                Logs.INVOCATION.tracef("DiscoveryAttempt: countDown() found a cluster %s with one failed destination, %s, removing cluster", cluster, uri);
+                                removeCluster(cluster);
+                                for (NodeInformation nodeInformation : getAllNodeInformation()) {
+                                    nodeInformation.removeCluster(cluster);
+                                }
+                            }
                         }
                     }
-                    result.complete();
-                } else {
-                    boolean ok = false;
-                    // optimize for simple module identifier and node name queries
-                    if (node != null) {
-                        if (!eagerNodes.contains(node)) {
+
+                    final DiscoveryResult result = this.discoveryResult;
+                    final String node = filterSpec.accept(NODE_EXTRACTOR);
+                    final EJBModuleIdentifier module = filterSpec.accept(MI_EXTRACTOR);
+                    if (phase2) {
+                        if (node != null) {
+                            final NodeInformation information = nodes.get(node);
+                            if (information != null) information.discover(serviceType, filterSpec, result);
+
+                        } else for (NodeInformation information : nodes.values()) {
+                            information.discover(serviceType, filterSpec, result);
+
+                        }
+                        result.complete();
+                    } else {
+                        boolean ok = false;
+                        // optimize for simple module identifier and node name queries
+                        if (node != null) {
                             final NodeInformation information = nodes.get(node);
                             if (information != null) {
                                 if (information.discover(serviceType, filterSpec, result)) {
                                     ok = true;
                                 }
                             }
-                        }
-                    } else for (NodeInformation information : nodes.values()) {
-                        if (!eagerNodes.contains(information.getNodeName())) {
+                        } else for (NodeInformation information : nodes.values()) {
                             if (information.discover(serviceType, filterSpec, result)) {
                                 ok = true;
                             }
                         }
-                    }
-                    if (ok || !eagerNodes.isEmpty()) {
-                        result.complete();
-                    } else {
-                        // everything failed.  We have to reconnect everything.
-                        Set<URI> everything = new HashSet<>();
-                        Map<URI, String> effectiveAuthMappings = new HashMap<>();
-                        for (EJBClientConnection connection : ejbReceiver.getReceiverContext().getClientContext().getConfiguredConnections()) {
-                            if (connection.isForDiscovery()) {
-                                everything.add(connection.getDestination());
+                        if (ok) {
+                            result.complete();
+                        } else {
+                            // everything failed.  We have to reconnect everything.
+                            Set<URI> everything = new HashSet<>();
+                            Map<URI, String> effectiveAuthMappings = new HashMap<>();
+                            for (EJBClientConnection connection : ejbReceiver.getReceiverContext().getClientContext().getConfiguredConnections()) {
+                                if (connection.isForDiscovery()) {
+                                    everything.add(connection.getDestination());
+                                }
                             }
-                        }
-                        outer: for (NodeInformation information : nodes.values()) {
-                            for (NodeInformation.ClusterNodeInformation cni : information.getClustersByName().values()) {
-                                final Map<String, CidrAddressTable<InetSocketAddress>> atm = cni.getAddressTablesByProtocol();
-                                for (Map.Entry<String, CidrAddressTable<InetSocketAddress>> entry2 : atm.entrySet()) {
-                                    final String protocol = entry2.getKey();
-                                    final CidrAddressTable<InetSocketAddress> addressTable = entry2.getValue();
-                                    for (CidrAddressTable.Mapping<InetSocketAddress> mapping : addressTable) {
-                                        try {
-                                            final InetSocketAddress destination = Inet.getResolved(mapping.getValue());
-                                            final InetSocketAddress source = ejbReceiver.getSourceAddress(destination);
-                                            if (source == null ? mapping.getRange().getNetmaskBits() == 0 : source.equals(destination)) {
+                            outer:
+                            for (NodeInformation information : nodes.values()) {
+                                for (NodeInformation.ClusterNodeInformation cni : information.getClustersByName().values()) {
+                                    final Map<String, CidrAddressTable<InetSocketAddress>> atm = cni.getAddressTablesByProtocol();
+                                    for (Map.Entry<String, CidrAddressTable<InetSocketAddress>> entry2 : atm.entrySet()) {
+                                        final String protocol = entry2.getKey();
+                                        final CidrAddressTable<InetSocketAddress> addressTable = entry2.getValue();
+                                        for (CidrAddressTable.Mapping<InetSocketAddress> mapping : addressTable) {
+                                            try {
+                                                final InetSocketAddress destination = Inet.getResolved(mapping.getValue());
+                                                final InetSocketAddress source = ejbReceiver.getSourceAddress(destination);
+                                                if (source == null ? mapping.getRange().getNetmaskBits() == 0 : source.equals(destination)) {
 
-                                                final InetAddress destinationAddress = destination.getAddress();
-                                                String hostName = Inet.getHostNameIfResolved(destinationAddress);
-                                                if (hostName == null) {
-                                                    if (destinationAddress instanceof Inet6Address) {
-                                                        hostName = '[' + Inet.toOptimalString(destinationAddress) + ']';
-                                                    } else {
-                                                        hostName = Inet.toOptimalString(destinationAddress);
+                                                    final InetAddress destinationAddress = destination.getAddress();
+                                                    String hostName = Inet.getHostNameIfResolved(destinationAddress);
+                                                    if (hostName == null) {
+                                                        if (destinationAddress instanceof Inet6Address) {
+                                                            hostName = '[' + Inet.toOptimalString(destinationAddress) + ']';
+                                                        } else {
+                                                            hostName = Inet.toOptimalString(destinationAddress);
+                                                        }
                                                     }
-                                                }
-                                                URI location = new URI(protocol, null, hostName, destination.getPort(), null, null, null);
-                                                String cluster = effectiveAuthMappings.get(location);
-                                                if (cluster != null) {
-                                                    effectiveAuthMappings.put(location, cluster);
-                                                }
+                                                    URI location = new URI(protocol, null, hostName, destination.getPort(), null, null, null);
+                                                    String cluster = effectiveAuthMappings.get(location);
+                                                    if (cluster != null) {
+                                                        effectiveAuthMappings.put(location, cluster);
+                                                    }
 
-                                                everything.add(location);
-                                                continue outer;
+                                                    everything.add(location);
+                                                    continue outer;
+                                                }
+                                            } catch (URISyntaxException | UnknownHostException e) {
+                                                // ignore URI and try the next one
                                             }
-                                        } catch (URISyntaxException | UnknownHostException e) {
-                                            // ignore URI and try the next one
                                         }
                                     }
                                 }
                             }
-                        }
-                        // now connect them ALL
-                        phase2 = true;
-                        outstandingCount.incrementAndGet();
-                        for (URI uri : everything) {
-                            if(!failedDestinations.containsKey(uri)) {
-                                connectAndDiscover(uri, effectiveAuthMappings.get(uri));
+                            // now connect them ALL
+                            phase2 = true;
+                            outstandingCount.incrementAndGet();
+                            for (URI uri : everything) {
+                                if (!failedDestinations.containsKey(uri)) {
+                                    connectAndDiscover(uri, effectiveAuthMappings.get(uri));
+                                }
                             }
-                        }
-                        countDown();
-                    }
-                }
-            } else {
-                final DiscoveryResult result = this.discoveryResult;
-                final String node = filterSpec.accept(NODE_EXTRACTOR);
-                if (node != null) {
-                    if (!eagerNodes.contains(node)) {
-                        final NodeInformation information = nodes.get(node);
-                        if (information != null) {
-                            if (information.discover(serviceType, filterSpec, result)) {
-                                eagerNodes.add(node);
-                            }
-                        }
-                    }
-                } else for (NodeInformation information : nodes.values()) {
-                    if (!eagerNodes.contains(information.getNodeName())) {
-                        if (information.discover(serviceType, filterSpec, result)) {
-                            eagerNodes.add(information.getNodeName());
+                            countDown();
                         }
                     }
                 }
             }
+
         }
 
         // discovery result methods
