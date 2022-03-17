@@ -50,6 +50,7 @@ public final class RemoteTransportProvider implements EJBTransportProvider {
     public boolean supportsProtocol(final String uriScheme) {
         switch (uriScheme) {
             case "remote":
+            case "remote+tls":
             case "remote+http":
             case "remote+https":
             // compatibility
@@ -67,6 +68,7 @@ public final class RemoteTransportProvider implements EJBTransportProvider {
     public EJBReceiver getReceiver(final EJBReceiverContext receiverContext, final String uriScheme) throws IllegalArgumentException {
         switch (uriScheme) {
             case "remote":
+            case "remote+tls":
             case "remote+http":
             case "remote+https":
             // compatibility
