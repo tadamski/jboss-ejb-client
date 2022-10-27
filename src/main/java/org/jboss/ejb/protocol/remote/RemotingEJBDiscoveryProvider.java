@@ -395,6 +395,8 @@ final class RemotingEJBDiscoveryProvider implements DiscoveryProvider, Discovere
                 public void handleDone(final ConnectionPeerIdentity data, final URI destination) {
                     final IoFuture<EJBClientChannel> future = DiscoveryAttempt.this.ejbReceiver.serviceHandle.getClientService(data.getConnection(), OptionMap.EMPTY);
                     onCancel(future::cancel);
+                    Logs.INVOCATION.errorf("DiscoveryAttempt: adding inner notifier in object %s phase2: %s\n", this, phase2);
+                    logShortStackTrace();
                     future.addNotifier(innerNotifier, destination);
                 }
             };
@@ -438,6 +440,8 @@ final class RemotingEJBDiscoveryProvider implements DiscoveryProvider, Discovere
                 future = doPrivileged((PrivilegedAction<IoFuture<ConnectionPeerIdentity>>) () -> getConnectedIdentityUsingClusterEffective(endpoint, uri, "ejb", "jboss", authenticationContext, clusterEffective));
             }
             onCancel(future::cancel);
+            Logs.INVOCATION.errorf("DiscoveryAttempt: adding outer notifier in object %s phase2: %s\n", this, phase2);
+            logShortStackTrace();
             future.addNotifier(outerNotifier, uri);
         }
 
@@ -611,6 +615,13 @@ final class RemotingEJBDiscoveryProvider implements DiscoveryProvider, Discovere
             final List<Runnable> cancellers = this.cancellers;
             synchronized (cancellers) {
                 cancellers.add(action);
+            }
+        }
+
+        private void logShortStackTrace() {
+            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+            for (int i = 1; i < Math.min(15, stackTrace.length); i++) {
+                Logs.INVOCATION.errorf("\t %s", Thread.currentThread().getStackTrace()[i].toString());
             }
         }
     }
