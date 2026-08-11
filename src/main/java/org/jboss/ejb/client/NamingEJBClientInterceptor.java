@@ -222,6 +222,8 @@ public final class NamingEJBClientInterceptor implements EJBClientInterceptor {
         // Oops, we got some wrong information!
         if(shouldBlocklist(cause)){
             addBlocklistedDestination(destination);
+        } else if (cause instanceof NoSuchEJBException) {
+            Logs.INVOCATION.debugf("NamingEJBClientInterceptor: skipping invocation blocklist for URI %s on NoSuchEJBException", destination);
         } else {
             addInvocationBlocklistedDestination(context, destination);
         }

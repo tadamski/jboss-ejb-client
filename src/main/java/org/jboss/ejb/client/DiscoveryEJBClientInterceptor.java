@@ -268,6 +268,12 @@ public final class DiscoveryEJBClientInterceptor implements EJBClientInterceptor
         // Oops, we got some wrong information!
         if (shouldBlocklist(cause)) {
             addBlocklistedDestination(destination);
+        } else if (cause instanceof NoSuchEJBException) {
+            // Don't blocklist the destination for NoSuchEJBException — the destination may be
+            // a load balancer that fronts multiple backends. Blocklisting the LB blocks all
+            // backends. Retrying through the same LB without the sticky session cookie will
+            // route to a different backend.
+            Logs.INVOCATION.debugf("DiscoveryEJBClientInterceptor: skipping invocation blocklist for URI %s on NoSuchEJBException", destination);
         } else {
             addInvocationBlocklistedDestination(context, destination);
         }
