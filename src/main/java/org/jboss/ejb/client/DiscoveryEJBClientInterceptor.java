@@ -280,6 +280,11 @@ public final class DiscoveryEJBClientInterceptor implements EJBClientInterceptor
 
         getDiscovery().processMissingTarget(destination, cause);
 
+        if (context.getTransaction() != null) {
+            // In a transaction: do not clear affinity or retry — the TX is bound to the original node.
+            return;
+        }
+
         // clear the weak affinity so that cluster invocations can be re-targeted.
         context.setWeakAffinity(Affinity.NONE);
         context.setTargetAffinity(null);
