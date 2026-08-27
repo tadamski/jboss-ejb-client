@@ -49,6 +49,9 @@
     </licenses>
 
     <properties>
+        <nexus.repository.staging>wildfly-staging</nexus.repository.staging>
+        <nexus.staging.tag>jboss-ejb-client-${project.version}</nexus.staging.tag>
+
         <version.org.jboss.bridger>1.8</version.org.jboss.bridger>
         <version.org.jboss.byteman>4.0.27</version.org.jboss.byteman>
         <version.org.jboss.invocation>2.0.0.Final</version.org.jboss.invocation>
